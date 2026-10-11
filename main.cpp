@@ -43,7 +43,10 @@ private:
             return pos;
         }
         data_file.seekp(0, ios::end);
-        return data_file.tellp();
+        long pos = data_file.tellp();
+        // Ensure we start after the header
+        if (pos == 0) pos = sizeof(long);
+        return pos;
     }
     
     void write_node(const BPTNode& node) {
@@ -277,26 +280,37 @@ public:
     BPlusTree() : root_pos(-1) {
         data_file.open(DATA_FILE, ios::in | ios::out | ios::binary);
         if (!data_file.is_open()) {
+            // Create new file
             data_file.open(DATA_FILE, ios::out | ios::binary);
             data_file.close();
             data_file.open(DATA_FILE, ios::in | ios::out | ios::binary);
             
-            // Create root
+            // Write header (root position will be sizeof(long))
+            root_pos = sizeof(long);
+            data_file.seekp(0);
+            data_file.write(reinterpret_cast<const char*>(&root_pos), sizeof(root_pos));
+            
+            // Create root node
             BPTNode root;
             root.is_leaf = true;
-            root.file_pos = get_new_position();
+            root.file_pos = root_pos;
             write_node(root);
-            root_pos = root.file_pos;
         } else {
-            // Read root position
+            // Read root position from header
             data_file.seekg(0);
             data_file.read(reinterpret_cast<char*>(&root_pos), sizeof(root_pos));
-            if (root_pos == -1) {
+            
+            // If file is empty or corrupted, create new root
+            if (root_pos == -1 || data_file.fail()) {
+                data_file.clear();
+                root_pos = sizeof(long);
+                data_file.seekp(0);
+                data_file.write(reinterpret_cast<const char*>(&root_pos), sizeof(root_pos));
+                
                 BPTNode root;
                 root.is_leaf = true;
-                root.file_pos = get_new_position();
+                root.file_pos = root_pos;
                 write_node(root);
-                root_pos = root.file_pos;
             }
         }
     }
