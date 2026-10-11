@@ -275,42 +275,42 @@ private:
     }
     
 public:
-    BPlusTree() : root_pos(-1) {
+    BPlusTree() : root_pos(sizeof(long)) {
+        // Always try to create/open the file
         data_file.open(DATA_FILE, ios::in | ios::out | ios::binary);
+        
         if (!data_file.is_open()) {
-            // Create new file
+            // File doesn't exist, create it
             data_file.open(DATA_FILE, ios::out | ios::binary);
             data_file.close();
             data_file.open(DATA_FILE, ios::in | ios::out | ios::binary);
-            
-            // Write header (root position will be sizeof(long))
+        }
+        
+        // Check if file is empty by trying to read header
+        data_file.seekg(0);
+        long header_root = -1;
+        data_file.read(reinterpret_cast<char*>(&header_root), sizeof(header_root));
+        
+        if (data_file.gcount() < sizeof(header_root) || header_root == -1) {
+            // File is empty or invalid, initialize it
+            data_file.clear();
             root_pos = sizeof(long);
+            
+            // Write header
             data_file.seekp(0);
             data_file.write(reinterpret_cast<const char*>(&root_pos), sizeof(root_pos));
             
-            // Create root node
+            // Create and write root node
             BPTNode root;
             root.is_leaf = true;
             root.file_pos = root_pos;
             write_node(root);
         } else {
-            // Read root position from header
-            data_file.seekg(0);
-            data_file.read(reinterpret_cast<char*>(&root_pos), sizeof(root_pos));
-            
-            // If file is empty or corrupted, create new root
-            if (root_pos == -1 || data_file.fail()) {
-                data_file.clear();
-                root_pos = sizeof(long);
-                data_file.seekp(0);
-                data_file.write(reinterpret_cast<const char*>(&root_pos), sizeof(root_pos));
-                
-                BPTNode root;
-                root.is_leaf = true;
-                root.file_pos = root_pos;
-                write_node(root);
-            }
+            // File exists and has valid header
+            root_pos = header_root;
         }
+        
+        flush_file();
     }
     
     ~BPlusTree() {
