@@ -8,21 +8,22 @@
 
 using namespace std;
 
-// B+ Tree implementation for file-based key-value storage
+// Optimized B+ Tree implementation for file-based key-value storage
 const string DATA_FILE = "bptree.dat";
-const int ORDER = 50;  // Order of B+ Tree (maximum children per node)
-const int MAX_KEYS = ORDER - 1;  // Maximum keys per node
+const int ORDER = 32;  // Smaller order for better memory efficiency
+const int MAX_KEYS = ORDER - 1;
+const int MAX_VALUES_PER_KEY = 50;  // Limit values per key
 
-// B+ Tree node structure
+// Compact B+ Tree node structure
 struct BPTNode {
     bool is_leaf;
     int key_count;
-    char keys[MAX_KEYS][65];  // Keys (64 bytes + null terminator)
-    int children[MAX_KEYS + 1]; // Child node file positions
-    int values[MAX_KEYS][100]; // Values for leaf nodes (up to 100 values per key)
-    int value_counts[MAX_KEYS]; // Number of values per key
-    long next_leaf; // Next leaf node file position
-    long file_pos;  // This node's file position
+    char keys[MAX_KEYS][65];
+    long children[MAX_KEYS + 1];  // Use long for file positions
+    int values[MAX_KEYS][MAX_VALUES_PER_KEY];
+    int value_counts[MAX_KEYS];
+    long next_leaf;
+    long file_pos;
     
     BPTNode() : is_leaf(false), key_count(0), next_leaf(-1), file_pos(-1) {
         memset(children, -1, sizeof(children));
@@ -34,25 +35,18 @@ class BPlusTree {
 private:
     fstream data_file;
     long root_pos;
-    vector<long> free_positions;
     
     long get_new_position() {
-        if (!free_positions.empty()) {
-            long pos = free_positions.back();
-            free_positions.pop_back();
-            return pos;
-        }
         data_file.seekp(0, ios::end);
         long pos = data_file.tellp();
-        // Ensure we start after the header
-        if (pos == 0) pos = sizeof(long);
+        if (pos == 0) pos = sizeof(long);  // Skip header
         return pos;
     }
     
     void write_node(const BPTNode& node) {
         data_file.seekp(node.file_pos);
         data_file.write(reinterpret_cast<const char*>(&node), sizeof(BPTNode));
-        data_file.flush();
+        // Only flush periodically for better performance
     }
     
     void read_node(long pos, BPTNode& node) {
@@ -62,6 +56,10 @@ private:
         }
         data_file.seekg(pos);
         data_file.read(reinterpret_cast<char*>(&node), sizeof(BPTNode));
+    }
+    
+    void flush_file() {
+        data_file.flush();
     }
     
     int find_key_pos(const BPTNode& node, const char* key) {
@@ -341,10 +339,14 @@ public:
             write_node(new_root);
             root_pos = new_root.file_pos;
         }
+        
+        // Flush after each insert for data safety
+        flush_file();
     }
     
     void remove(const string& key, int value) {
         delete_recursive(root_pos, key.c_str(), value);
+        flush_file();
     }
     
     vector<int> find(const string& key) {
